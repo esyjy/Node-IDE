@@ -1,0 +1,290 @@
+:root {
+  font-family: "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #e8eaed;
+  background-color: #0f1115;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid #3a3f4b;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  background: #1a1d24;
+  color: inherit;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #252a33;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.primary-btn {
+  background: #3b6ef5;
+  border-color: #3b6ef5;
+  color: white;
+}
+
+.primary-btn:hover {
+  background: #2f5ad1;
+}
+
+.danger-btn {
+  border-color: #8b3a3a;
+  color: #ffb4b4;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #2a2f3a;
+  background: #12151b;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.version {
+  color: #8b93a7;
+  font-size: 0.8rem;
+}
+
+.toolbar {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: 220px 1fr 300px;
+  flex: 1;
+  min-height: 0;
+}
+
+.palette-panel,
+.property-panel,
+.result-panel {
+  padding: 1rem;
+  border-right: 1px solid #2a2f3a;
+  background: #12151b;
+}
+
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #2a2f3a;
+  background: #12151b;
+}
+
+.side-panel .property-panel {
+  border-right: none;
+  border-bottom: 1px solid #2a2f3a;
+}
+
+.palette-panel h2,
+.property-panel h2,
+.result-panel h2 {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+}
+
+.palette-hint,
+.muted {
+  color: #8b93a7;
+  font-size: 0.85rem;
+}
+
+.palette-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  margin-bottom: 0.5rem;
+  text-align: left;
+}
+
+.palette-card span {
+  color: #8b93a7;
+  font-size: 0.8rem;
+}
+
+.canvas-panel {
+  min-height: 0;
+  height: calc(100vh - 56px);
+  background: #0f1115;
+}
+
+.workflow-node {
+  min-width: 180px;
+  padding: 0.75rem;
+  border-radius: 10px;
+  border: 1px solid #3a3f4b;
+  background: #1a1d24;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.workflow-node.selected {
+  border-color: #3b6ef5;
+}
+
+.workflow-node-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.workflow-node-title {
+  font-weight: 600;
+}
+
+.lifecycle-badge {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  background: #2a2f3a;
+}
+
+.lifecycle-running {
+  background: #2f5ad1;
+}
+
+.lifecycle-done {
+  background: #1f7a4d;
+}
+
+.lifecycle-failed {
+  background: #8b3a3a;
+}
+
+.workflow-node-body code,
+.workflow-node-output {
+  font-size: 0.85rem;
+  color: #c5cad6;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.field input {
+  border-radius: 8px;
+  border: 1px solid #3a3f4b;
+  background: #0f1115;
+  color: inherit;
+  padding: 0.5rem 0.65rem;
+}
+
+.result-box {
+  border: 1px solid #2a2f3a;
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: #0f1115;
+}
+
+.result-box pre {
+  margin: 0.5rem 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.result-meta {
+  color: #8b93a7;
+  font-size: 0.8rem;
+}
+
+.banner,
+.toast {
+  margin: 0;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+}
+
+.toast {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #252a33;
+  border: 1px solid #3a3f4b;
+  border-radius: 8px;
+  z-index: 20;
+}
+
+.error-text {
+  color: #ff8f8f;
+}
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+  z-index: 30;
+}
+
+.dialog {
+  width: min(480px, calc(100vw - 2rem));
+  background: #1a1d24;
+  border: 1px solid #3a3f4b;
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.update-notes {
+  white-space: pre-wrap;
+  font-size: 0.85rem;
+  color: #c5cad6;
+}
