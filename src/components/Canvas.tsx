@@ -10,7 +10,8 @@ import {
   type NodeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { formatRejection, resolvePorts } from "../lib/protocol";
 import type { Edge, NodeInstance } from "../types/graph";
 import { WorkflowNode, type WorkflowNodeData } from "./WorkflowNode";
 
@@ -53,6 +54,7 @@ export function Canvas({
   onError,
 }: CanvasProps) {
   const [flowNodes, setFlowNodes] = useState(() => toFlowNodes(nodes, selectedId));
+  const lastRejectionKey = useRef<string | null>(null);
 
   useEffect(() => {
     setFlowNodes(toFlowNodes(nodes, selectedId));
@@ -70,20 +72,48 @@ export function Canvas({
     targetHandle: edge.target_port,
   }));
 
-  const isValidConnection = useCallback((connection: Connection | FlowEdge) => {
-    return connection.sourceHandle === "out" && connection.targetHandle === "in";
-  }, []);
+  const isValidConnection = useCallback(
+    (connection: Connection | FlowEdge) => {
+      if (connection.sourceHandle !== "out" || connection.targetHandle !== "in") {
+        return false;
+      }
+      if (!connection.source || !connection.target) {
+        return false;
+      }
+
+      const sourceNode = nodes.find((n) => n.id === connection.source);
+      const targetNode = nodes.find((n) => n.id === connection.target);
+      if (!sourceNode || !targetNode) return false;
+
+      const sourceDecl = sourceNode.port_decls?.out;
+      const targetDecl = targetNode.port_decls?.in;
+      if (!sourceDecl || !targetDecl) return false;
+
+      const result = resolvePorts(sourceDecl, targetDecl);
+      if (!result.compatible) {
+        const key = `${connection.source}:${connection.target}:${result.reason}`;
+        if (lastRejectionKey.current !== key) {
+          lastRejectionKey.current = key;
+          onError(formatRejection(result));
+        }
+        return false;
+      }
+
+      lastRejectionKey.current = null;
+      return true;
+    },
+    [nodes, onError],
+  );
 
   const handleConnect = useCallback(
     (connection: Connection) => {
       if (!connection.source || !connection.target) return;
       if (!isValidConnection(connection)) {
-        onError("v2 connections must be out → in");
         return;
       }
       onConnect(connection);
     },
-    [isValidConnection, onConnect, onError],
+    [isValidConnection, onConnect],
   );
 
   const handleNodeDragStop = useCallback(

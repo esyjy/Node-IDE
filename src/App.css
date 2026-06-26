@@ -211,12 +211,60 @@ button:disabled {
   margin-bottom: 0.75rem;
 }
 
-.field input {
+.field input,
+.field select {
   border-radius: 8px;
   border: 1px solid #3a3f4b;
   background: #0f1115;
   color: inherit;
   padding: 0.5rem 0.65rem;
+}
+
+.panel-subheading {
+  margin: 0.5rem 0 0.75rem;
+  font-size: 0.85rem;
+  color: #c5cad6;
+}
+
+.port-decl-editor {
+  margin-bottom: 1rem;
+  padding: 0.65rem;
+  border: 1px solid #2a2f3a;
+  border-radius: 8px;
+  background: #0f1115;
+}
+
+.port-decl-name {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.port-decl-summary {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.handle-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.handle-in {
+  margin-bottom: 0.35rem;
+}
+
+.handle-out {
+  justify-content: flex-end;
+  margin-top: 0.35rem;
+}
+
+.port-label {
+  font-size: 0.65rem;
+  color: #8b93a7;
+  text-transform: lowercase;
 }
 
 .result-box {

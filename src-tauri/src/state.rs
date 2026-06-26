@@ -8,8 +8,9 @@ use crate::migration::registry::MigrationRegistry;
 use crate::migration::{backup_before_update, restore_on_migration_failure, run_migrations_on_project};
 use crate::persistence::project::{self, Project, ProjectError};
 use crate::runtime::edge::Edge;
-use crate::runtime::graph::{self, GraphError, GraphRunResult};
+use crate::runtime::graph::{self, ConnectionValidation, GraphError, GraphRunResult};
 use crate::runtime::node::{NodeInstance, NodeKind, Position, RunResult, RuntimeError};
+use crate::runtime::protocol::presets::PortDeclaration;
 use crate::runtime::MinimalRuntime;
 
 #[derive(Debug, Error)]
@@ -82,9 +83,51 @@ impl AppState {
             .ok_or_else(|| AppError::Validation(format!("node not found: {id}")))?;
 
         node.kind = kind;
+        node.port_decls = crate::runtime::protocol::presets::default_port_decls_for_kind(&node.kind);
         let updated = node.clone();
         self.persist()?;
         Ok(updated)
+    }
+
+    pub fn update_node_ports(
+        &mut self,
+        id: Uuid,
+        port_decls: std::collections::HashMap<String, PortDeclaration>,
+    ) -> Result<(), AppError> {
+        let node = self
+            .project
+            .nodes
+            .iter_mut()
+            .find(|n| n.id == id)
+            .ok_or_else(|| AppError::Validation(format!("node not found: {id}")))?;
+
+        for (port_id, decl) in port_decls {
+            if !node.has_port(&port_id) {
+                return Err(AppError::Validation(format!(
+                    "port '{port_id}' is not declared on this node"
+                )));
+            }
+            node.port_decls.insert(port_id, decl);
+        }
+        self.persist()?;
+        Ok(())
+    }
+
+    pub fn validate_connection(
+        &self,
+        source_node_id: Uuid,
+        source_port: String,
+        target_node_id: Uuid,
+        target_port: String,
+    ) -> Result<ConnectionValidation, AppError> {
+        graph::validate_connection(
+            &self.project.nodes,
+            source_node_id,
+            &source_port,
+            target_node_id,
+            &target_port,
+        )
+        .map_err(AppError::from)
     }
 
     pub fn move_node(&mut self, id: Uuid, position: Position) -> Result<(), AppError> {

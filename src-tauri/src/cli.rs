@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
+use uuid::Uuid;
 
 use crate::runtime::edge::{Edge, PORT_IN, PORT_OUT};
+use crate::runtime::graph;
 use crate::runtime::node::{NodeInstance, NodeKind, Position};
 use crate::state::AppState;
 
@@ -28,6 +30,24 @@ pub enum Commands {
     State,
     /// Dry-run migrations on project.json
     Migrate,
+    /// Resolve port declarations without a graph
+    Resolve {
+        #[arg(long)]
+        source_what: String,
+        #[arg(long)]
+        source_how: String,
+        #[arg(long)]
+        target_what: String,
+        #[arg(long)]
+        target_how: String,
+    },
+    /// Validate a connection between two nodes in the persisted graph
+    ValidateConnection {
+        #[arg(long)]
+        from: Uuid,
+        #[arg(long)]
+        to: Uuid,
+    },
 }
 
 pub fn run() -> i32 {
@@ -53,16 +73,7 @@ pub fn run_with_args(args: Vec<String>) -> i32 {
         },
         Commands::RunGraph => match AppState::new() {
             Ok(mut state) => match state.run_graph() {
-                Ok(result) => match serde_json::to_string_pretty(&result) {
-                    Ok(json) => {
-                        println!("{json}");
-                        0
-                    }
-                    Err(error) => {
-                        eprintln!("error: {error}");
-                        1
-                    }
-                },
+                Ok(result) => print_json(&result),
                 Err(error) => {
                     eprintln!("error: {error}");
                     1
@@ -74,19 +85,7 @@ pub fn run_with_args(args: Vec<String>) -> i32 {
             }
         },
         Commands::State => match AppState::new() {
-            Ok(state) => {
-                let snapshot = state.snapshot();
-                match serde_json::to_string_pretty(&snapshot) {
-                    Ok(json) => {
-                        println!("{json}");
-                        0
-                    }
-                    Err(error) => {
-                        eprintln!("error: {error}");
-                        1
-                    }
-                }
-            }
+            Ok(state) => print_json(&state.snapshot()),
             Err(error) => {
                 eprintln!("error: {error}");
                 1
@@ -94,16 +93,34 @@ pub fn run_with_args(args: Vec<String>) -> i32 {
         },
         Commands::Migrate => match AppState::new() {
             Ok(state) => match state.migrate_dry_run() {
-                Ok(snapshot) => match serde_json::to_string_pretty(&snapshot) {
-                    Ok(json) => {
-                        println!("{json}");
-                        0
-                    }
-                    Err(error) => {
-                        eprintln!("error: {error}");
-                        1
-                    }
-                },
+                Ok(snapshot) => print_json(&snapshot),
+                Err(error) => {
+                    eprintln!("error: {error}");
+                    1
+                }
+            },
+            Err(error) => {
+                eprintln!("error: {error}");
+                1
+            }
+        },
+        Commands::Resolve {
+            source_what,
+            source_how,
+            target_what,
+            target_how,
+        } => {
+            let result = graph::resolve_declarations(
+                &source_what,
+                &source_how,
+                &target_what,
+                &target_how,
+            );
+            print_json(&result)
+        }
+        Commands::ValidateConnection { from, to } => match AppState::new() {
+            Ok(state) => match state.validate_connection(from, PORT_OUT.into(), to, PORT_IN.into()) {
+                Ok(result) => print_json(&result),
                 Err(error) => {
                     eprintln!("error: {error}");
                     1
@@ -117,9 +134,25 @@ pub fn run_with_args(args: Vec<String>) -> i32 {
     }
 }
 
+fn print_json<T: serde::Serialize>(value: &T) -> i32 {
+    match serde_json::to_string_pretty(value) {
+        Ok(json) => {
+            println!("{json}");
+            0
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            1
+        }
+    }
+}
+
 fn run_headless(kind: &str, value: &str, input: &str) -> Result<String, String> {
     let node_kind = match kind {
         "constant" => NodeKind::Constant {
+            value: value.to_string(),
+        },
+        "json_constant" => NodeKind::JsonConstant {
             value: value.to_string(),
         },
         "echo" => NodeKind::Echo {
@@ -151,4 +184,22 @@ pub fn sample_wired_graph() -> (Vec<NodeInstance>, Vec<Edge>) {
     let echo_id = echo.id;
     let edge = Edge::new(constant_id, PORT_OUT, echo_id, PORT_IN);
     (vec![constant, echo], vec![edge])
+}
+
+#[allow(dead_code)]
+pub fn sample_incompatible_graph() -> (Vec<NodeInstance>, Vec<Edge>) {
+    let json_constant = NodeInstance::new(
+        NodeKind::JsonConstant {
+            value: "{}".into(),
+        },
+        Some(Position { x: 0.0, y: 0.0 }),
+    );
+    let echo = NodeInstance::new(
+        NodeKind::Echo {
+            input: "".into(),
+        },
+        Some(Position { x: 200.0, y: 0.0 }),
+    );
+    let edge = Edge::new(json_constant.id, PORT_OUT, echo.id, PORT_IN);
+    (vec![json_constant, echo], vec![edge])
 }

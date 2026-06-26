@@ -19,6 +19,7 @@ function App() {
     loading,
     addNode,
     updateNode,
+    updateNodePorts,
     removeNode,
     addEdge,
     removeEdge,
@@ -147,6 +148,10 @@ function App() {
               if (!selectedNode) return;
               const kind = nodeKindType(selectedNode.kind);
               void updateNode(selectedNode.id, kind, value, input).catch(showToast);
+            }}
+            onUpdatePorts={(portDecls) => {
+              if (!selectedNode) return;
+              void updateNodePorts(selectedNode.id, portDecls).catch(showToast);
             }}
             onRemove={() => {
               if (!selectedNode) return;

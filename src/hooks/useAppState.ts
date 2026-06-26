@@ -3,10 +3,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
   AppStateSnapshot,
+  ConnectionValidation,
   GraphRunResult,
   Lifecycle,
+  PortDeclaration,
   RunResult,
 } from "../types/graph";
+
+export type NodeKindName = "constant" | "json_constant" | "echo";
 
 export function useAppState() {
   const [state, setState] = useState<AppStateSnapshot | null>(null);
@@ -48,11 +52,16 @@ export function useAppState() {
   }, [refresh]);
 
   const addNode = useCallback(
-    async (kind: "constant" | "echo", x?: number, y?: number) => {
+    async (kind: NodeKindName, x?: number, y?: number) => {
       const snapshot = await invoke<AppStateSnapshot>("add_node", {
         request: {
           kind,
-          value: kind === "constant" ? "hello" : undefined,
+          value:
+            kind === "constant"
+              ? "hello"
+              : kind === "json_constant"
+                ? "{}"
+                : undefined,
           input: kind === "echo" ? "" : undefined,
           x,
           y,
@@ -67,12 +76,23 @@ export function useAppState() {
   const updateNode = useCallback(
     async (
       id: string,
-      kind: "constant" | "echo",
+      kind: NodeKindName,
       value?: string,
       input?: string,
     ) => {
       const snapshot = await invoke<AppStateSnapshot>("update_node", {
         request: { id, kind, value, input },
+      });
+      setState(snapshot);
+      return snapshot;
+    },
+    [],
+  );
+
+  const updateNodePorts = useCallback(
+    async (id: string, portDecls: Record<string, { what: string; how: string }>) => {
+      const snapshot = await invoke<AppStateSnapshot>("update_node_ports", {
+        request: { id, port_decls: portDecls },
       });
       setState(snapshot);
       return snapshot;
@@ -103,6 +123,25 @@ export function useAppState() {
       });
       setState(snapshot);
       return snapshot;
+    },
+    [],
+  );
+
+  const validateConnection = useCallback(
+    async (
+      sourceNodeId: string,
+      sourcePort: string,
+      targetNodeId: string,
+      targetPort: string,
+    ) => {
+      return invoke<ConnectionValidation>("validate_connection", {
+        request: {
+          source_node_id: sourceNodeId,
+          source_port: sourcePort,
+          target_node_id: targetNodeId,
+          target_port: targetPort,
+        },
+      });
     },
     [],
   );
@@ -138,11 +177,15 @@ export function useAppState() {
     refresh,
     addNode,
     updateNode,
+    updateNodePorts,
     removeNode,
     addEdge,
+    validateConnection,
     removeEdge,
     moveNode,
     runNode,
     runGraph,
   };
 }
+
+export type { PortDeclaration };

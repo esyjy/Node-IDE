@@ -41,6 +41,7 @@ impl MigrationRegistry {
             migrators: Vec::new(),
         };
         registry.register(Box::new(crate::migration::v1_to_v2::V1ToV2Migrator));
+        registry.register(Box::new(crate::migration::v2_to_v3::V2ToV3Migrator));
         registry
     }
 

@@ -2,6 +2,7 @@ export type Lifecycle = "created" | "running" | "done" | "failed";
 
 export type NodeKind =
   | { kind: "constant"; value: string }
+  | { kind: "json_constant"; value: string }
   | { kind: "echo"; input: string };
 
 export interface Position {
@@ -9,12 +10,16 @@ export interface Position {
   y: number;
 }
 
+export type { ConnectionValidation, PortDeclaration } from "../lib/protocol";
+import type { PortDeclaration } from "../lib/protocol";
+
 export interface NodeInstance {
   id: string;
   kind: NodeKind;
   lifecycle: Lifecycle;
   last_output: string | null;
   position: Position;
+  port_decls: Record<string, PortDeclaration>;
 }
 
 export interface Edge {
@@ -63,11 +68,28 @@ export interface UpdateInfo {
 }
 
 export function nodeKindLabel(kind: NodeKind): string {
-  return kind.kind === "constant" ? "Constant" : "Echo";
+  switch (kind.kind) {
+    case "constant":
+      return "Constant";
+    case "json_constant":
+      return "JsonConstant";
+    case "echo":
+      return "Echo";
+  }
 }
 
-export function nodeKindType(kind: NodeKind): "constant" | "echo" {
+export function nodeKindType(kind: NodeKind): "constant" | "json_constant" | "echo" {
   return kind.kind;
+}
+
+export function nodePorts(kind: NodeKind): string[] {
+  switch (kind.kind) {
+    case "constant":
+    case "json_constant":
+      return ["out"];
+    case "echo":
+      return ["in", "out"];
+  }
 }
 
 export function sinkNodeId(nodes: NodeInstance[], edges: Edge[]): string | null {

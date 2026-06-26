@@ -7,6 +7,17 @@ use uuid::Uuid;
 use super::edge::{Edge, PORT_IN, PORT_OUT};
 use super::envelope::MessageEnvelope;
 use super::node::{NodeInstance, RunResult};
+use super::protocol::presets::PortDeclaration;
+use super::protocol::resolve::{resolve_ports, ResolutionOutcome};
+use super::protocol::presets::Axis;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConnectionValidation {
+    pub compatible: bool,
+    pub axis: Option<Axis>,
+    pub reason: Option<String>,
+    pub hint: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MessageDelivery {
@@ -34,6 +45,14 @@ pub enum GraphError {
     DuplicateTarget { node_id: Uuid, port: String },
     #[error("upstream node {0} has no output to deliver")]
     MissingUpstreamOutput(Uuid),
+    #[error("{axis}: {reason} — Hint: {hint}")]
+    IncompatiblePorts {
+        axis: Axis,
+        reason: String,
+        hint: String,
+    },
+    #[error("port '{port}' not declared on node {node_id}")]
+    PortNotDeclared { node_id: Uuid, port: String },
     #[error("runtime error: {0}")]
     Runtime(#[from] super::node::RuntimeError),
 }
@@ -79,7 +98,162 @@ pub fn validate_new_edge(nodes: &[NodeInstance], edges: &[Edge], candidate: &Edg
         return Err(GraphError::CycleDetected);
     }
 
+    validate_port_compatibility(nodes, candidate)?;
+
     Ok(())
+}
+
+pub fn validate_connection(
+    nodes: &[NodeInstance],
+    source_node_id: Uuid,
+    source_port: &str,
+    target_node_id: Uuid,
+    target_port: &str,
+) -> Result<ConnectionValidation, GraphError> {
+    if source_port != PORT_OUT || target_port != PORT_IN {
+        return Ok(ConnectionValidation {
+            compatible: false,
+            axis: None,
+            reason: Some(format!(
+                "Connections must be out → in (got {source_port} → {target_port})"
+            )),
+            hint: Some("Drag from an output handle (right) to an input handle (left).".into()),
+        });
+    }
+
+    if source_node_id == target_node_id {
+        return Ok(ConnectionValidation {
+            compatible: false,
+            axis: None,
+            reason: Some("Cannot connect a node to itself.".into()),
+            hint: Some("Connect two different nodes.".into()),
+        });
+    }
+
+    let source = nodes
+        .iter()
+        .find(|n| n.id == source_node_id)
+        .ok_or(GraphError::NodeNotFound(source_node_id))?;
+    let target = nodes
+        .iter()
+        .find(|n| n.id == target_node_id)
+        .ok_or(GraphError::NodeNotFound(target_node_id))?;
+
+    match port_resolution(source, source_port, target, target_port) {
+        Ok(()) => Ok(ConnectionValidation {
+            compatible: true,
+            axis: None,
+            reason: None,
+            hint: None,
+        }),
+        Err(GraphError::IncompatiblePorts { axis, reason, hint }) => Ok(ConnectionValidation {
+            compatible: false,
+            axis: Some(axis),
+            reason: Some(reason),
+            hint: Some(hint),
+        }),
+        Err(other) => Err(other),
+    }
+}
+
+fn validate_port_compatibility(nodes: &[NodeInstance], candidate: &Edge) -> Result<(), GraphError> {
+    let source = nodes
+        .iter()
+        .find(|n| n.id == candidate.source_node_id)
+        .ok_or(GraphError::NodeNotFound(candidate.source_node_id))?;
+    let target = nodes
+        .iter()
+        .find(|n| n.id == candidate.target_node_id)
+        .ok_or(GraphError::NodeNotFound(candidate.target_node_id))?;
+
+    port_resolution(source, &candidate.source_port, target, &candidate.target_port)
+}
+
+fn port_resolution(
+    source: &NodeInstance,
+    source_port: &str,
+    target: &NodeInstance,
+    target_port: &str,
+) -> Result<(), GraphError> {
+    if !source.has_port(source_port) {
+        return Err(GraphError::PortNotDeclared {
+            node_id: source.id,
+            port: source_port.to_string(),
+        });
+    }
+    if !target.has_port(target_port) {
+        return Err(GraphError::PortNotDeclared {
+            node_id: target.id,
+            port: target_port.to_string(),
+        });
+    }
+
+    let source_decl = source
+        .port_decl(source_port)
+        .ok_or_else(|| GraphError::PortNotDeclared {
+            node_id: source.id,
+            port: source_port.to_string(),
+        })?;
+    let target_decl = target
+        .port_decl(target_port)
+        .ok_or_else(|| GraphError::PortNotDeclared {
+            node_id: target.id,
+            port: target_port.to_string(),
+        })?;
+
+    match resolve_ports(source_decl, target_decl) {
+        ResolutionOutcome::Compatible => Ok(()),
+        ResolutionOutcome::Reject { axis, reason, hint } => Err(GraphError::IncompatiblePorts {
+            axis,
+            reason,
+            hint,
+        }),
+    }
+}
+
+pub fn resolve_declarations(
+    source_what: &str,
+    source_how: &str,
+    target_what: &str,
+    target_how: &str,
+) -> ConnectionValidation {
+    let source = match PortDeclaration::from_ids(source_what, source_how) {
+        Ok(decl) => decl,
+        Err(reason) => {
+            return ConnectionValidation {
+                compatible: false,
+                axis: None,
+                reason: Some(reason),
+                hint: Some("Use presets: any, text, json, bytes and single, stream, request-response, broadcast.".into()),
+            };
+        }
+    };
+    let target = match PortDeclaration::from_ids(target_what, target_how) {
+        Ok(decl) => decl,
+        Err(reason) => {
+            return ConnectionValidation {
+                compatible: false,
+                axis: None,
+                reason: Some(reason),
+                hint: Some("Use presets: any, text, json, bytes and single, stream, request-response, broadcast.".into()),
+            };
+        }
+    };
+
+    match resolve_ports(&source, &target) {
+        ResolutionOutcome::Compatible => ConnectionValidation {
+            compatible: true,
+            axis: None,
+            reason: None,
+            hint: None,
+        },
+        ResolutionOutcome::Reject { axis, reason, hint } => ConnectionValidation {
+            compatible: false,
+            axis: Some(axis),
+            reason: Some(reason),
+            hint: Some(hint),
+        },
+    }
 }
 
 pub fn would_create_cycle(edges: &[Edge], candidate: &Edge) -> bool {
@@ -295,5 +469,23 @@ mod tests {
         let nodes = vec![a, b];
 
         assert!(validate_new_edge(&nodes, &[edge1.clone()], &edge2).is_err());
+    }
+
+    #[test]
+    fn rejects_incompatible_what() {
+        let constant = NodeInstance::new(
+            NodeKind::JsonConstant {
+                value: "{}".into(),
+            },
+            None,
+        );
+        let echo = NodeInstance::new(NodeKind::Echo { input: "".into() }, None);
+        let edge = Edge::new(constant.id, PORT_OUT, echo.id, PORT_IN);
+        let nodes = vec![constant, echo];
+
+        match validate_new_edge(&nodes, &[], &edge) {
+            Err(GraphError::IncompatiblePorts { axis, .. }) => assert_eq!(axis, Axis::What),
+            other => panic!("expected incompatible ports, got {other:?}"),
+        }
     }
 }

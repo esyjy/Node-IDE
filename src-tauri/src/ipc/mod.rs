@@ -4,9 +4,10 @@ use tauri_plugin_updater::UpdaterExt;
 use uuid::Uuid;
 
 use crate::runtime::envelope::MessageEnvelope;
-use crate::runtime::graph::{GraphRunResult, MessageDelivery};
+use crate::runtime::graph::{ConnectionValidation, GraphRunResult, MessageDelivery};
 use crate::runtime::lifecycle::Lifecycle;
 use crate::runtime::node::{NodeKind, Position, RunResult};
+use crate::runtime::protocol::presets::PortDeclaration;
 use crate::state::{AppError, AppState, AppStateSnapshot};
 
 #[derive(Debug, Clone, Serialize)]
@@ -162,6 +163,64 @@ pub fn remove_node(
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ValidateConnectionRequest {
+    pub source_node_id: Uuid,
+    pub source_port: String,
+    pub target_node_id: Uuid,
+    pub target_port: String,
+}
+
+#[tauri::command]
+pub fn validate_connection(
+    state: State<'_, std::sync::Mutex<AppState>>,
+    request: ValidateConnectionRequest,
+) -> Result<ConnectionValidation, String> {
+    let guard = state.lock().map_err(|e| e.to_string())?;
+    guard
+        .validate_connection(
+            request.source_node_id,
+            request.source_port,
+            request.target_node_id,
+            request.target_port,
+        )
+        .map_err(app_error)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PortDeclInput {
+    pub what: String,
+    pub how: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateNodePortsRequest {
+    pub id: Uuid,
+    pub port_decls: std::collections::HashMap<String, PortDeclInput>,
+}
+
+#[tauri::command]
+pub fn update_node_ports(
+    state: State<'_, std::sync::Mutex<AppState>>,
+    request: UpdateNodePortsRequest,
+) -> Result<AppStateSnapshot, String> {
+    let mut guard = state.lock().map_err(|e| e.to_string())?;
+    let parsed: std::collections::HashMap<String, PortDeclaration> = request
+        .port_decls
+        .into_iter()
+        .map(|(port, input)| {
+            PortDeclaration::from_ids(&input.what, &input.how)
+                .map(|decl| (port, decl))
+                .map_err(|e| e.to_string())
+        })
+        .collect::<Result<_, _>>()?;
+
+    guard
+        .update_node_ports(request.id, parsed)
+        .map_err(app_error)?;
+    Ok(guard.snapshot())
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AddEdgeRequest {
     pub source_node_id: Uuid,
     pub source_port: String,
@@ -307,6 +366,9 @@ fn parse_kind(kind: &str, value: Option<String>, input: Option<String>) -> Resul
     match kind {
         "constant" => Ok(NodeKind::Constant {
             value: value.unwrap_or_else(|| "hello".into()),
+        }),
+        "json_constant" => Ok(NodeKind::JsonConstant {
+            value: value.unwrap_or_else(|| "{}".into()),
         }),
         "echo" => Ok(NodeKind::Echo {
             input: input.unwrap_or_default(),

@@ -4,6 +4,8 @@ pub mod envelope;
 pub mod graph;
 pub mod lifecycle;
 pub mod node;
+pub mod protocol;
+pub mod sdk;
 
 use uuid::Uuid;
 
