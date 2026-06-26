@@ -44,7 +44,7 @@ function App() {
       <header className="app-header">
         <div className="brand">
           <h1>Node-IDE</h1>
-          <span className="version">v0.1.0</span>
+          <span className="version">v0.1.1</span>
         </div>
         <div className="toolbar">
           <button type="button" className="primary-btn" onClick={() => void handleRun()}>
