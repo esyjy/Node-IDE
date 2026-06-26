@@ -17,9 +17,30 @@ export interface NodeInstance {
   position: Position;
 }
 
+export interface Edge {
+  id: string;
+  source_node_id: string;
+  source_port: string;
+  target_node_id: string;
+  target_port: string;
+}
+
+export interface MessageEnvelope {
+  source_node_id: string;
+  source_port: string;
+  sequence: number;
+  payload: string;
+}
+
+export interface MessageDelivery {
+  edge_id: string;
+  envelope: MessageEnvelope;
+}
+
 export interface AppStateSnapshot {
   schema_version: number;
   nodes: NodeInstance[];
+  edges: Edge[];
   project_path: string;
 }
 
@@ -27,6 +48,11 @@ export interface RunResult {
   node_id: string;
   output: string;
   lifecycle: Lifecycle;
+}
+
+export interface GraphRunResult {
+  node_results: RunResult[];
+  deliveries: MessageDelivery[];
 }
 
 export interface UpdateInfo {
@@ -42,4 +68,12 @@ export function nodeKindLabel(kind: NodeKind): string {
 
 export function nodeKindType(kind: NodeKind): "constant" | "echo" {
   return kind.kind;
+}
+
+export function sinkNodeId(nodes: NodeInstance[], edges: Edge[]): string | null {
+  const sources = new Set(edges.map((e) => e.source_node_id));
+  const sinks = nodes.filter((n) => !sources.has(n.id));
+  if (sinks.length === 1) return sinks[0].id;
+  if (sinks.length > 1) return sinks[sinks.length - 1].id;
+  return nodes[nodes.length - 1]?.id ?? null;
 }

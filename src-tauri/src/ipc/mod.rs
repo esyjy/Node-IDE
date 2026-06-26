@@ -3,6 +3,8 @@ use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_updater::UpdaterExt;
 use uuid::Uuid;
 
+use crate::runtime::envelope::MessageEnvelope;
+use crate::runtime::graph::{GraphRunResult, MessageDelivery};
 use crate::runtime::lifecycle::Lifecycle;
 use crate::runtime::node::{NodeKind, Position, RunResult};
 use crate::state::{AppError, AppState, AppStateSnapshot};
@@ -49,6 +51,22 @@ fn emit_output(app: &AppHandle, node_id: Uuid, output: &str) {
         OutputEvent {
             node_id,
             output: output.to_string(),
+        },
+    );
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MessageDeliveredEvent {
+    pub edge_id: uuid::Uuid,
+    pub envelope: MessageEnvelope,
+}
+
+fn emit_message_delivered(app: &AppHandle, delivery: &MessageDelivery) {
+    let _ = app.emit(
+        "message:delivered",
+        MessageDeliveredEvent {
+            edge_id: delivery.edge_id,
+            envelope: delivery.envelope.clone(),
         },
     );
 }
@@ -127,6 +145,63 @@ pub fn remove_node(
     let mut guard = state.lock().map_err(|e| e.to_string())?;
     guard.remove_node(id).map_err(app_error)?;
     Ok(guard.snapshot())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddEdgeRequest {
+    pub source_node_id: Uuid,
+    pub source_port: String,
+    pub target_node_id: Uuid,
+    pub target_port: String,
+}
+
+#[tauri::command]
+pub fn add_edge(
+    state: State<'_, std::sync::Mutex<AppState>>,
+    request: AddEdgeRequest,
+) -> Result<AppStateSnapshot, String> {
+    let mut guard = state.lock().map_err(|e| e.to_string())?;
+    guard
+        .add_edge(
+            request.source_node_id,
+            request.source_port,
+            request.target_node_id,
+            request.target_port,
+        )
+        .map_err(app_error)?;
+    Ok(guard.snapshot())
+}
+
+#[tauri::command]
+pub fn remove_edge(
+    state: State<'_, std::sync::Mutex<AppState>>,
+    id: Uuid,
+) -> Result<AppStateSnapshot, String> {
+    let mut guard = state.lock().map_err(|e| e.to_string())?;
+    guard.remove_edge(id).map_err(app_error)?;
+    Ok(guard.snapshot())
+}
+
+#[tauri::command]
+pub fn run_graph(
+    app: AppHandle,
+    state: State<'_, std::sync::Mutex<AppState>>,
+) -> Result<GraphRunResult, String> {
+    let mut guard = state.lock().map_err(|e| e.to_string())?;
+
+    match guard.run_graph() {
+        Ok(result) => {
+            for delivery in &result.deliveries {
+                emit_message_delivered(&app, delivery);
+            }
+            for node_result in &result.node_results {
+                emit_output(&app, node_result.node_id, &node_result.output);
+                emit_lifecycle(&app, node_result.node_id, node_result.lifecycle);
+            }
+            Ok(result)
+        }
+        Err(error) => Err(app_error(error)),
+    }
 }
 
 #[tauri::command]

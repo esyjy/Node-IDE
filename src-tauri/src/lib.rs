@@ -1,9 +1,9 @@
 pub mod cli;
 pub mod state;
 mod ipc;
-mod migration;
-mod persistence;
-mod runtime;
+pub mod migration;
+pub mod persistence;
+pub mod runtime;
 
 use std::sync::Mutex;
 
@@ -23,6 +23,9 @@ pub fn run() {
             ipc::add_node,
             ipc::update_node,
             ipc::remove_node,
+            ipc::add_edge,
+            ipc::remove_edge,
+            ipc::run_graph,
             ipc::run_node,
             ipc::check_for_updates,
             ipc::install_update,

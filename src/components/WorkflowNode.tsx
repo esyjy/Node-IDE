@@ -18,6 +18,7 @@ export function WorkflowNode({ data }: NodeProps) {
 
   return (
     <div className={`workflow-node ${nodeData.selected ? "selected" : ""}`}>
+      <Handle type="target" position={Position.Left} id="in" />
       <div className="workflow-node-header">
         <span className="workflow-node-title">{nodeKindLabel(instance.kind)}</span>
         <span className={lifecycleClass(instance.lifecycle)}>{instance.lifecycle}</span>

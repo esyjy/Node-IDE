@@ -50,7 +50,12 @@ export function UpdateDialog({ open, onClose }: UpdateDialogProps) {
     try {
       await invoke("install_update");
     } catch (err) {
-      setError(String(err));
+      const message = String(err);
+      setError(
+        message.includes("migration")
+          ? `Update failed during data migration. Your backup was restored if possible. (${message})`
+          : message,
+      );
       setBusy(false);
     }
   };

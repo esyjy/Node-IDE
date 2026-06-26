@@ -1,4 +1,5 @@
 pub mod registry;
+pub mod v1_to_v2;
 
 use std::fs;
 use std::path::Path;

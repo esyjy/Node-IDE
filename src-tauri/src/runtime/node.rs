@@ -60,12 +60,15 @@ impl NodeInstance {
         }
     }
 
-    pub fn run(&mut self) -> Result<RunResult, RuntimeError> {
+    pub fn run(&mut self, wired_input: Option<&str>) -> Result<RunResult, RuntimeError> {
         self.lifecycle.transition(Lifecycle::Running)?;
 
         let output = match &self.kind {
             NodeKind::Constant { value } => builtin::constant::execute(value),
-            NodeKind::Echo { input } => builtin::echo::execute(input),
+            NodeKind::Echo { input } => {
+                let effective = wired_input.unwrap_or(input.as_str());
+                builtin::echo::execute(effective)
+            }
         };
 
         match output {
@@ -98,7 +101,7 @@ mod tests {
             },
             None,
         );
-        let result = node.run().unwrap();
+        let result = node.run(None).unwrap();
         assert_eq!(result.output, "hello");
         assert_eq!(node.lifecycle, Lifecycle::Done);
     }
@@ -111,7 +114,19 @@ mod tests {
             },
             None,
         );
-        let result = node.run().unwrap();
+        let result = node.run(None).unwrap();
         assert_eq!(result.output, "world");
+    }
+
+    #[test]
+    fn echo_prefers_wired_input() {
+        let mut node = NodeInstance::new(
+            NodeKind::Echo {
+                input: "fallback".into(),
+            },
+            None,
+        );
+        let result = node.run(Some("wired")).unwrap();
+        assert_eq!(result.output, "wired");
     }
 }

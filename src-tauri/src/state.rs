@@ -7,6 +7,8 @@ use uuid::Uuid;
 use crate::migration::registry::MigrationRegistry;
 use crate::migration::{backup_before_update, restore_on_migration_failure, run_migrations_on_project};
 use crate::persistence::project::{self, Project, ProjectError};
+use crate::runtime::edge::Edge;
+use crate::runtime::graph::{self, GraphError, GraphRunResult};
 use crate::runtime::node::{NodeInstance, NodeKind, Position, RunResult, RuntimeError};
 use crate::runtime::MinimalRuntime;
 
@@ -16,6 +18,8 @@ pub enum AppError {
     Project(#[from] ProjectError),
     #[error("runtime error: {0}")]
     Runtime(#[from] RuntimeError),
+    #[error("graph error: {0}")]
+    Graph(#[from] GraphError),
     #[error("{0}")]
     Validation(String),
 }
@@ -24,6 +28,7 @@ pub enum AppError {
 pub struct AppStateSnapshot {
     pub schema_version: u32,
     pub nodes: Vec<NodeInstance>,
+    pub edges: Vec<Edge>,
     pub project_path: String,
 }
 
@@ -51,6 +56,7 @@ impl AppState {
         AppStateSnapshot {
             schema_version: self.project.schema_version,
             nodes: self.project.nodes.clone(),
+            edges: self.project.edges.clone(),
             project_path: self.project_path.display().to_string(),
         }
     }
@@ -61,12 +67,6 @@ impl AppState {
     }
 
     pub fn add_node(&mut self, kind: NodeKind, position: Option<Position>) -> Result<NodeInstance, AppError> {
-        if !self.project.can_add_node() {
-            return Err(AppError::Validation(
-                "v1 allows only one node on the canvas".into(),
-            ));
-        }
-
         let node = NodeInstance::new(kind, position);
         self.project.nodes.push(node.clone());
         self.persist()?;
@@ -93,12 +93,46 @@ impl AppState {
         if self.project.nodes.len() == before {
             return Err(AppError::Validation(format!("node not found: {id}")));
         }
+        self.project
+            .edges
+            .retain(|e| e.source_node_id != id && e.target_node_id != id);
+        self.persist()?;
+        Ok(())
+    }
+
+    pub fn add_edge(
+        &mut self,
+        source_node_id: Uuid,
+        source_port: String,
+        target_node_id: Uuid,
+        target_port: String,
+    ) -> Result<Edge, AppError> {
+        let edge = Edge::new(source_node_id, source_port, target_node_id, target_port);
+        graph::validate_new_edge(&self.project.nodes, &self.project.edges, &edge)?;
+        self.project.edges.push(edge.clone());
+        self.persist()?;
+        Ok(edge)
+    }
+
+    pub fn remove_edge(&mut self, id: Uuid) -> Result<(), AppError> {
+        let before = self.project.edges.len();
+        self.project.edges.retain(|e| e.id != id);
+        if self.project.edges.len() == before {
+            return Err(AppError::Validation(format!("edge not found: {id}")));
+        }
         self.persist()?;
         Ok(())
     }
 
     pub fn run_node(&mut self, id: Uuid) -> Result<RunResult, AppError> {
         let result = MinimalRuntime::run_node(&mut self.project.nodes, id)?;
+        self.persist()?;
+        Ok(result)
+    }
+
+    pub fn run_graph(&mut self) -> Result<GraphRunResult, AppError> {
+        let edges = self.project.edges.clone();
+        let result = MinimalRuntime::run_graph(&mut self.project.nodes, &edges)?;
         self.persist()?;
         Ok(result)
     }
@@ -139,6 +173,7 @@ impl AppState {
         Ok(AppStateSnapshot {
             schema_version: project.schema_version,
             nodes: project.nodes,
+            edges: project.edges,
             project_path: self.project_path.display().to_string(),
         })
     }

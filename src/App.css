@@ -237,6 +237,11 @@ button:disabled {
   font-size: 0.8rem;
 }
 
+.delivery-hint {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+}
+
 .banner,
 .toast {
   margin: 0;

@@ -4,15 +4,17 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::runtime::edge::Edge;
 use crate::runtime::node::NodeInstance;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
-pub const MAX_NODES_V1: usize = 1;
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub schema_version: u32,
     pub nodes: Vec<NodeInstance>,
+    #[serde(default)]
+    pub edges: Vec<Edge>,
 }
 
 impl Default for Project {
@@ -20,6 +22,7 @@ impl Default for Project {
         Self {
             schema_version: CURRENT_SCHEMA_VERSION,
             nodes: Vec::new(),
+            edges: Vec::new(),
         }
     }
 }
@@ -30,8 +33,6 @@ pub enum ProjectError {
     Io(#[from] std::io::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("v1 allows at most {MAX_NODES_V1} node on canvas")]
-    NodeLimitExceeded,
 }
 
 impl Project {
@@ -52,13 +53,12 @@ impl Project {
         fs::write(path, content)?;
         Ok(())
     }
-
-    pub fn can_add_node(&self) -> bool {
-        self.nodes.len() < MAX_NODES_V1
-    }
 }
 
 pub fn app_data_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("NODE_IDE_DATA_DIR") {
+        return PathBuf::from(dir);
+    }
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("com.nodeide.app")
@@ -77,14 +77,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_project_has_schema_version() {
+    fn default_project_has_schema_version_and_edges() {
         let project = Project::default();
         assert_eq!(project.schema_version, CURRENT_SCHEMA_VERSION);
-    }
-
-    #[test]
-    fn node_limit_v1() {
-        let project = Project::default();
-        assert!(project.can_add_node());
+        assert!(project.edges.is_empty());
     }
 }

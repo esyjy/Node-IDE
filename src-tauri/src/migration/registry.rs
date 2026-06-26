@@ -37,9 +37,11 @@ impl Default for MigrationRegistry {
 
 impl MigrationRegistry {
     pub fn new() -> Self {
-        Self {
+        let mut registry = Self {
             migrators: Vec::new(),
-        }
+        };
+        registry.register(Box::new(crate::migration::v1_to_v2::V1ToV2Migrator));
+        registry
     }
 
     pub fn register(&mut self, migrator: Box<dyn Migrator>) {
@@ -96,7 +98,7 @@ mod tests {
     #[test]
     fn empty_registry_noop_at_current_version() {
         let registry = MigrationRegistry::new();
-        let mut data = json!({ "schema_version": CURRENT_SCHEMA_VERSION, "nodes": [] });
+        let mut data = json!({ "schema_version": CURRENT_SCHEMA_VERSION, "nodes": [], "edges": [] });
         registry.run(&mut data).unwrap();
         assert_eq!(data["schema_version"], CURRENT_SCHEMA_VERSION);
     }
