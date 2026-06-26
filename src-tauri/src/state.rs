@@ -87,6 +87,19 @@ impl AppState {
         Ok(updated)
     }
 
+    pub fn move_node(&mut self, id: Uuid, position: Position) -> Result<(), AppError> {
+        let node = self
+            .project
+            .nodes
+            .iter_mut()
+            .find(|n| n.id == id)
+            .ok_or_else(|| AppError::Validation(format!("node not found: {id}")))?;
+
+        node.position = position;
+        self.persist()?;
+        Ok(())
+    }
+
     pub fn remove_node(&mut self, id: Uuid) -> Result<(), AppError> {
         let before = self.project.nodes.len();
         self.project.nodes.retain(|n| n.id != id);

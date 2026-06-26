@@ -138,6 +138,20 @@ pub fn update_node(
 }
 
 #[tauri::command]
+pub fn move_node(
+    state: State<'_, std::sync::Mutex<AppState>>,
+    id: Uuid,
+    x: f64,
+    y: f64,
+) -> Result<AppStateSnapshot, String> {
+    let mut guard = state.lock().map_err(|e| e.to_string())?;
+    guard
+        .move_node(id, Position { x, y })
+        .map_err(app_error)?;
+    Ok(guard.snapshot())
+}
+
+#[tauri::command]
 pub fn remove_node(
     state: State<'_, std::sync::Mutex<AppState>>,
     id: Uuid,

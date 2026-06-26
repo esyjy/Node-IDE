@@ -22,6 +22,7 @@ pub fn run() {
             ipc::get_app_state,
             ipc::add_node,
             ipc::update_node,
+            ipc::move_node,
             ipc::remove_node,
             ipc::add_edge,
             ipc::remove_edge,

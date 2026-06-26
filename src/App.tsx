@@ -22,6 +22,7 @@ function App() {
     removeNode,
     addEdge,
     removeEdge,
+    moveNode,
     runNode,
     runGraph,
   } = useAppState();
@@ -129,6 +130,9 @@ function App() {
             selectedId={selectedId}
             onSelect={setSelectedId}
             onConnect={handleConnect}
+            onMoveNode={(id, x, y) => {
+              void moveNode(id, x, y).catch(showToast);
+            }}
             onRemoveEdge={(id) => {
               void removeEdge(id).catch(showToast);
             }}

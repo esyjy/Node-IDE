@@ -113,6 +113,12 @@ export function useAppState() {
     return snapshot;
   }, []);
 
+  const moveNode = useCallback(async (id: string, x: number, y: number) => {
+    const snapshot = await invoke<AppStateSnapshot>("move_node", { id, x, y });
+    setState(snapshot);
+    return snapshot;
+  }, []);
+
   const runNode = useCallback(async (id: string) => {
     const result = await invoke<RunResult>("run_node", { id });
     await refresh();
@@ -135,6 +141,7 @@ export function useAppState() {
     removeNode,
     addEdge,
     removeEdge,
+    moveNode,
     runNode,
     runGraph,
   };
