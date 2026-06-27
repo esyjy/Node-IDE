@@ -1,6 +1,6 @@
 [package]
 name = "node-ide"
-version = "0.3.0"
+version = "0.3.1"
 description = "Node-IDE — visual workflow IDE"
 authors = ["Node-IDE"]
 edition = "2021"

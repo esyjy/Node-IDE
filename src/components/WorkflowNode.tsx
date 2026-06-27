@@ -1,13 +1,9 @@
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, Position, useNodeId, type NodeProps } from "@xyflow/react";
 import { portLabel } from "../lib/protocol";
-import type { Lifecycle, NodeInstance } from "../types/graph";
+import { useNodesSnapshot } from "../context/NodesContext";
+import type { Lifecycle } from "../types/graph";
 import { nodeKindLabel } from "../types/graph";
-
-export interface WorkflowNodeData {
-  instance: NodeInstance;
-  selected: boolean;
-  [key: string]: unknown;
-}
+import type { WorkflowNodeData } from "./WorkflowNode.types";
 
 function lifecycleClass(lifecycle: Lifecycle): string {
   return `lifecycle-badge lifecycle-${lifecycle}`;
@@ -15,7 +11,11 @@ function lifecycleClass(lifecycle: Lifecycle): string {
 
 export function WorkflowNode({ data }: NodeProps) {
   const nodeData = data as WorkflowNodeData;
-  const { instance } = nodeData;
+  const nodeId = useNodeId();
+  const nodes = useNodesSnapshot();
+  const instance =
+    (nodeId ? nodes.find((node) => node.id === nodeId) : undefined) ??
+    nodeData.instance;
   const inDecl = instance.port_decls?.in;
   const outDecl = instance.port_decls?.out;
 

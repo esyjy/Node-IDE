@@ -3,11 +3,14 @@ import type { Connection } from "@xyflow/react";
 import { getVersion } from "@tauri-apps/api/app";
 import { ReactFlowProvider } from "@xyflow/react";
 import { Canvas } from "./components/Canvas";
+import { MessageStack } from "./components/MessageStack";
 import { NodePalette } from "./components/NodePalette";
 import { PropertyPanel } from "./components/PropertyPanel";
 import { ResultPanel } from "./components/ResultPanel";
 import { UpdateDialog } from "./components/UpdateDialog";
+import { NodesProvider } from "./context/NodesContext";
 import { useAppState } from "./hooks/useAppState";
+import { useMessageStack } from "./hooks/useMessageStack";
 import type { GraphRunResult, RunResult } from "./types/graph";
 import { nodeKindType } from "./types/graph";
 import "./App.css";
@@ -27,10 +30,10 @@ function App() {
     runNode,
     runGraph,
   } = useAppState();
+  const { messages, pushMessage, dismissMessage } = useMessageStack();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lastGraphRun, setLastGraphRun] = useState<GraphRunResult | null>(null);
   const [lastNodeRun, setLastNodeRun] = useState<RunResult | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [appVersion, setAppVersion] = useState("…");
 
@@ -42,14 +45,9 @@ function App() {
     void getVersion().then(setAppVersion).catch(() => setAppVersion("dev"));
   }, []);
 
-  const showToast = (message: string) => {
-    setToast(message);
-    window.setTimeout(() => setToast(null), 3000);
-  };
-
   const handleRunGraph = async () => {
     if (nodes.length === 0) {
-      showToast("Add nodes first");
+      pushMessage("Add nodes first");
       return;
     }
     try {
@@ -57,14 +55,14 @@ function App() {
       setLastGraphRun(result);
       setLastNodeRun(null);
     } catch (err) {
-      showToast(String(err));
+      pushMessage(String(err));
     }
   };
 
   const handleRunNode = async () => {
     const target = selectedNode;
     if (!target) {
-      showToast("Select a node to run");
+      pushMessage("Select a node to run");
       return;
     }
     try {
@@ -72,7 +70,7 @@ function App() {
       setLastNodeRun(result);
       setLastGraphRun(null);
     } catch (err) {
-      showToast(String(err));
+      pushMessage(String(err));
     }
   };
 
@@ -84,7 +82,7 @@ function App() {
       connection.target,
       connection.targetHandle ?? "in",
     )
-      .catch(showToast);
+      .catch(pushMessage);
   };
 
   return (
@@ -109,7 +107,7 @@ function App() {
 
       {loading && <p className="banner">Loading project…</p>}
       {error && <p className="banner error-text">{error}</p>}
-      {toast && <p className="toast">{toast}</p>}
+      <MessageStack messages={messages} onDismiss={dismissMessage} />
 
       <main className="workspace">
         <NodePalette
@@ -120,26 +118,28 @@ function App() {
                 const created = snapshot.nodes[snapshot.nodes.length - 1];
                 if (created) setSelectedId(created.id);
               })
-              .catch(showToast);
+              .catch(pushMessage);
           }}
         />
 
-        <ReactFlowProvider>
-          <Canvas
-            nodes={nodes}
-            edges={edges}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            onConnect={handleConnect}
-            onMoveNode={(id, x, y) => {
-              void moveNode(id, x, y).catch(showToast);
-            }}
-            onRemoveEdge={(id) => {
-              void removeEdge(id).catch(showToast);
-            }}
-            onError={showToast}
-          />
-        </ReactFlowProvider>
+        <NodesProvider nodes={nodes}>
+          <ReactFlowProvider>
+            <Canvas
+              nodes={nodes}
+              edges={edges}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              onConnect={handleConnect}
+              onMoveNode={(id, x, y) => {
+                void moveNode(id, x, y).catch(pushMessage);
+              }}
+              onRemoveEdge={(id) => {
+                void removeEdge(id).catch(pushMessage);
+              }}
+              onError={pushMessage}
+            />
+          </ReactFlowProvider>
+        </NodesProvider>
 
         <aside className="side-panel">
           <PropertyPanel
@@ -147,11 +147,11 @@ function App() {
             onUpdate={(value, input) => {
               if (!selectedNode) return;
               const kind = nodeKindType(selectedNode.kind);
-              void updateNode(selectedNode.id, kind, value, input).catch(showToast);
+              void updateNode(selectedNode.id, kind, value, input).catch(pushMessage);
             }}
             onUpdatePorts={(portDecls) => {
               if (!selectedNode) return;
-              void updateNodePorts(selectedNode.id, portDecls).catch(showToast);
+              void updateNodePorts(selectedNode.id, portDecls).catch(pushMessage);
             }}
             onRemove={() => {
               if (!selectedNode) return;
@@ -161,7 +161,7 @@ function App() {
                   setLastGraphRun(null);
                   setLastNodeRun(null);
                 })
-                .catch(showToast);
+                .catch(pushMessage);
             }}
           />
           <ResultPanel

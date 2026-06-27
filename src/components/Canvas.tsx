@@ -5,15 +5,17 @@ import {
   applyNodeChanges,
   type Connection,
   type Edge as FlowEdge,
+  type FinalConnectionState,
   type Node,
   type NodeChange,
   type NodeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { formatRejection, resolvePorts } from "../lib/protocol";
 import type { Edge, NodeInstance } from "../types/graph";
-import { WorkflowNode, type WorkflowNodeData } from "./WorkflowNode";
+import { WorkflowNode } from "./WorkflowNode";
+import type { WorkflowNodeData } from "./WorkflowNode.types";
 
 const nodeTypes: NodeTypes = {
   workflow: WorkflowNode,
@@ -30,6 +32,26 @@ function toFlowNodes(
     data: { instance, selected: instance.id === selectedId },
     selected: instance.id === selectedId,
   }));
+}
+
+function validateConnectionPair(
+  nodes: NodeInstance[],
+  sourceId: string,
+  targetId: string,
+) {
+  const sourceNode = nodes.find((n) => n.id === sourceId);
+  const targetNode = nodes.find((n) => n.id === targetId);
+  if (!sourceNode || !targetNode) {
+    return null;
+  }
+
+  const sourceDecl = sourceNode.port_decls?.out;
+  const targetDecl = targetNode.port_decls?.in;
+  if (!sourceDecl || !targetDecl) {
+    return null;
+  }
+
+  return resolvePorts(sourceDecl, targetDecl);
 }
 
 interface CanvasProps {
@@ -54,7 +76,6 @@ export function Canvas({
   onError,
 }: CanvasProps) {
   const [flowNodes, setFlowNodes] = useState(() => toFlowNodes(nodes, selectedId));
-  const lastRejectionKey = useRef<string | null>(null);
 
   useEffect(() => {
     setFlowNodes(toFlowNodes(nodes, selectedId));
@@ -81,26 +102,31 @@ export function Canvas({
         return false;
       }
 
-      const sourceNode = nodes.find((n) => n.id === connection.source);
-      const targetNode = nodes.find((n) => n.id === connection.target);
-      if (!sourceNode || !targetNode) return false;
+      const result = validateConnectionPair(nodes, connection.source, connection.target);
+      return result?.compatible ?? false;
+    },
+    [nodes],
+  );
 
-      const sourceDecl = sourceNode.port_decls?.out;
-      const targetDecl = targetNode.port_decls?.in;
-      if (!sourceDecl || !targetDecl) return false;
-
-      const result = resolvePorts(sourceDecl, targetDecl);
-      if (!result.compatible) {
-        const key = `${connection.source}:${connection.target}:${result.reason}`;
-        if (lastRejectionKey.current !== key) {
-          lastRejectionKey.current = key;
-          onError(formatRejection(result));
-        }
-        return false;
+  const handleConnectEnd = useCallback(
+    (_event: MouseEvent | TouchEvent, connectionState: FinalConnectionState) => {
+      if (connectionState.isValid) {
+        return;
       }
 
-      lastRejectionKey.current = null;
-      return true;
+      const sourceId = connectionState.fromNode?.id;
+      const targetId = connectionState.toNode?.id;
+      if (!sourceId || !targetId) {
+        if (connectionState.fromHandle?.id !== "out" || connectionState.toHandle?.id !== "in") {
+          onError("Connections must be out → in");
+        }
+        return;
+      }
+
+      const result = validateConnectionPair(nodes, sourceId, targetId);
+      if (result && !result.compatible) {
+        onError(formatRejection(result));
+      }
     },
     [nodes, onError],
   );
@@ -134,6 +160,7 @@ export function Canvas({
         onNodeClick={(_, node) => onSelect(node.id)}
         onPaneClick={() => onSelect(null)}
         onConnect={handleConnect}
+        onConnectEnd={handleConnectEnd}
         isValidConnection={isValidConnection}
         onEdgesDelete={(deleted) => {
           for (const edge of deleted) {

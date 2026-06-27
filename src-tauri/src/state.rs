@@ -83,7 +83,10 @@ impl AppState {
             .ok_or_else(|| AppError::Validation(format!("node not found: {id}")))?;
 
         node.kind = kind;
-        node.port_decls = crate::runtime::protocol::presets::default_port_decls_for_kind(&node.kind);
+        for (port_id, decl) in crate::runtime::protocol::presets::default_port_decls_for_kind(&node.kind)
+        {
+            node.port_decls.entry(port_id).or_insert(decl);
+        }
         let updated = node.clone();
         self.persist()?;
         Ok(updated)
@@ -238,5 +241,47 @@ impl AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self::new().expect("failed to initialize app state")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::node::NodeKind;
+    use crate::runtime::protocol::presets::{HowPreset, PortDeclaration, WhatPreset};
+    use std::collections::HashMap;
+
+    #[test]
+    fn update_node_preserves_custom_port_decls() {
+        let mut state = AppState {
+            project: Project::default(),
+            project_path: std::env::temp_dir().join("node-ide-test-state"),
+            migration_registry: MigrationRegistry::new(),
+        };
+
+        let node = state
+            .add_node(
+                NodeKind::Echo { input: "hello".into() },
+                Some(Position { x: 0.0, y: 0.0 }),
+            )
+            .unwrap();
+
+        let mut custom_decls = HashMap::new();
+        custom_decls.insert(
+            "in".into(),
+            PortDeclaration::new(WhatPreset::Json, HowPreset::Single),
+        );
+        state.update_node_ports(node.id, custom_decls).unwrap();
+
+        state
+            .update_node(node.id, NodeKind::Echo { input: "updated".into() })
+            .unwrap();
+
+        let updated = state.project.nodes.iter().find(|n| n.id == node.id).unwrap();
+        assert_eq!(updated.kind, NodeKind::Echo { input: "updated".into() });
+        assert_eq!(
+            updated.port_decls.get("in").map(|d| &d.what),
+            Some(&WhatPreset::Json)
+        );
     }
 }
