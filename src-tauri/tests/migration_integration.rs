@@ -1,4 +1,5 @@
 use node_ide_lib::migration::registry::MigrationRegistry;
+use node_ide_lib::persistence::project::CURRENT_SCHEMA_VERSION;
 use serde_json::json;
 
 #[test]
@@ -10,7 +11,7 @@ fn migration_v1_to_v2_adds_edges() {
     });
 
     registry.run(&mut data).unwrap();
-    assert_eq!(data["schema_version"], 3);
+    assert_eq!(data["schema_version"], CURRENT_SCHEMA_VERSION);
     assert_eq!(data["edges"], json!([]));
 }
 
@@ -30,6 +31,8 @@ fn migration_v2_to_v3_adds_port_decls() {
     });
 
     registry.run(&mut data).unwrap();
-    assert_eq!(data["schema_version"], 3);
+    assert_eq!(data["schema_version"], CURRENT_SCHEMA_VERSION);
     assert!(data["nodes"][0].get("port_decls").is_some());
+    assert_eq!(data["nodes"][0]["lifecycle"], "idle");
+    assert_eq!(data["nodes"][0]["lifecycle_mode"], "ephemeral");
 }

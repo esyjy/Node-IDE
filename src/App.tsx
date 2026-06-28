@@ -10,8 +10,9 @@ import { ResultPanel } from "./components/ResultPanel";
 import { UpdateDialog } from "./components/UpdateDialog";
 import { NodesProvider } from "./context/NodesContext";
 import { useAppState } from "./hooks/useAppState";
+import { useLifecycleStream } from "./hooks/useLifecycleStream";
 import { useMessageStack } from "./hooks/useMessageStack";
-import type { GraphRunResult, RunResult } from "./types/graph";
+import type { GraphRunResult, LifecycleMode, RunResult } from "./types/graph";
 import { nodeKindType } from "./types/graph";
 import "./App.css";
 
@@ -23,6 +24,9 @@ function App() {
     addNode,
     updateNode,
     updateNodePorts,
+    updateNodeMode,
+    startNode,
+    stopNode,
     removeNode,
     addEdge,
     removeEdge,
@@ -31,22 +35,24 @@ function App() {
     runGraph,
   } = useAppState();
   const { messages, pushMessage, dismissMessage } = useMessageStack();
+  const baseNodes = state?.nodes ?? [];
+  const { nodes: displayNodes, activeEdgeIds } = useLifecycleStream(baseNodes);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lastGraphRun, setLastGraphRun] = useState<GraphRunResult | null>(null);
   const [lastNodeRun, setLastNodeRun] = useState<RunResult | null>(null);
   const [updateOpen, setUpdateOpen] = useState(false);
   const [appVersion, setAppVersion] = useState("…");
 
-  const nodes = state?.nodes ?? [];
   const edges = state?.edges ?? [];
-  const selectedNode = nodes.find((node) => node.id === selectedId) ?? null;
+  const selectedNode = displayNodes.find((node) => node.id === selectedId) ?? null;
+  const isPersistent = selectedNode?.lifecycle_mode === "persistent";
 
   useEffect(() => {
     void getVersion().then(setAppVersion).catch(() => setAppVersion("dev"));
   }, []);
 
   const handleRunGraph = async () => {
-    if (nodes.length === 0) {
+    if (displayNodes.length === 0) {
       pushMessage("Add nodes first");
       return;
     }
@@ -99,6 +105,22 @@ function App() {
           <button type="button" onClick={() => void handleRunNode()}>
             Run node
           </button>
+          {isPersistent && selectedNode && (
+            <>
+              <button
+                type="button"
+                onClick={() => void startNode(selectedNode.id).catch(pushMessage)}
+              >
+                Start
+              </button>
+              <button
+                type="button"
+                onClick={() => void stopNode(selectedNode.id).catch(pushMessage)}
+              >
+                Stop
+              </button>
+            </>
+          )}
           <button type="button" onClick={() => setUpdateOpen(true)}>
             Check for updates
           </button>
@@ -112,7 +134,7 @@ function App() {
       <main className="workspace">
         <NodePalette
           onAdd={(kind) => {
-            const offset = nodes.length * 40;
+            const offset = displayNodes.length * 40;
             void addNode(kind, 120 + offset, 120 + offset)
               .then((snapshot) => {
                 const created = snapshot.nodes[snapshot.nodes.length - 1];
@@ -122,11 +144,12 @@ function App() {
           }}
         />
 
-        <NodesProvider nodes={nodes}>
+        <NodesProvider nodes={displayNodes}>
           <ReactFlowProvider>
             <Canvas
-              nodes={nodes}
+              nodes={displayNodes}
               edges={edges}
+              activeEdgeIds={activeEdgeIds}
               selectedId={selectedId}
               onSelect={setSelectedId}
               onConnect={handleConnect}
@@ -153,6 +176,10 @@ function App() {
               if (!selectedNode) return;
               void updateNodePorts(selectedNode.id, portDecls).catch(pushMessage);
             }}
+            onUpdateMode={(mode: LifecycleMode) => {
+              if (!selectedNode) return;
+              void updateNodeMode(selectedNode.id, mode).catch(pushMessage);
+            }}
             onRemove={() => {
               if (!selectedNode) return;
               void removeNode(selectedNode.id)
@@ -165,7 +192,7 @@ function App() {
             }}
           />
           <ResultPanel
-            nodes={nodes}
+            nodes={displayNodes}
             edges={edges}
             lastGraphRun={lastGraphRun}
             lastNodeRun={lastNodeRun}

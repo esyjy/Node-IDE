@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import type {
   AppStateSnapshot,
   ConnectionValidation,
   GraphRunResult,
-  Lifecycle,
+  LifecycleMode,
   PortDeclaration,
   RunResult,
 } from "../types/graph";
@@ -22,8 +21,10 @@ export function useAppState() {
       const snapshot = await invoke<AppStateSnapshot>("get_app_state");
       setState(snapshot);
       setError(null);
+      return snapshot;
     } catch (err) {
       setError(String(err));
+      return null;
     } finally {
       setLoading(false);
     }
@@ -31,24 +32,6 @@ export function useAppState() {
 
   useEffect(() => {
     void refresh();
-
-    const unsubs: Array<() => void> = [];
-
-    void listen<{ node_id: string; lifecycle: Lifecycle }>("node:lifecycle", () => {
-      void refresh();
-    }).then((unlisten) => unsubs.push(unlisten));
-
-    void listen("node:output", () => {
-      void refresh();
-    }).then((unlisten) => unsubs.push(unlisten));
-
-    void listen("message:delivered", () => {
-      void refresh();
-    }).then((unlisten) => unsubs.push(unlisten));
-
-    return () => {
-      unsubs.forEach((fn) => fn());
-    };
   }, [refresh]);
 
   const addNode = useCallback(
@@ -99,6 +82,26 @@ export function useAppState() {
     },
     [],
   );
+
+  const updateNodeMode = useCallback(async (id: string, mode: LifecycleMode) => {
+    const snapshot = await invoke<AppStateSnapshot>("update_node_mode", {
+      request: { id, mode },
+    });
+    setState(snapshot);
+    return snapshot;
+  }, []);
+
+  const startNode = useCallback(async (id: string) => {
+    const snapshot = await invoke<AppStateSnapshot>("start_node", { id });
+    setState(snapshot);
+    return snapshot;
+  }, []);
+
+  const stopNode = useCallback(async (id: string) => {
+    const snapshot = await invoke<AppStateSnapshot>("stop_node", { id });
+    setState(snapshot);
+    return snapshot;
+  }, []);
 
   const removeNode = useCallback(async (id: string) => {
     const snapshot = await invoke<AppStateSnapshot>("remove_node", { id });
@@ -158,11 +161,14 @@ export function useAppState() {
     return snapshot;
   }, []);
 
-  const runNode = useCallback(async (id: string) => {
-    const result = await invoke<RunResult>("run_node", { id });
-    await refresh();
-    return result;
-  }, [refresh]);
+  const runNode = useCallback(
+    async (id: string) => {
+      const result = await invoke<RunResult>("run_node", { id });
+      await refresh();
+      return result;
+    },
+    [refresh],
+  );
 
   const runGraph = useCallback(async () => {
     const result = await invoke<GraphRunResult>("run_graph");
@@ -178,6 +184,9 @@ export function useAppState() {
     addNode,
     updateNode,
     updateNodePorts,
+    updateNodeMode,
+    startNode,
+    stopNode,
     removeNode,
     addEdge,
     validateConnection,

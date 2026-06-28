@@ -10,7 +10,6 @@ use super::node::{NodeInstance, RunResult};
 use super::protocol::presets::PortDeclaration;
 use super::protocol::resolve::{resolve_ports, ResolutionOutcome};
 use super::protocol::presets::Axis;
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ConnectionValidation {
     pub compatible: bool,
@@ -344,33 +343,15 @@ pub fn topological_order(nodes: &[NodeInstance], edges: &[Edge]) -> Result<Vec<U
 }
 
 pub fn run_graph(nodes: &mut [NodeInstance], edges: &[Edge]) -> Result<GraphRunResult, GraphError> {
-    let order = topological_order(nodes, edges)?;
-    let mut deliveries = Vec::new();
-    let mut node_results = Vec::new();
-
-    for node_id in order {
-        let wired_input = incoming_payload(node_id, edges, nodes)?;
-
-        let idx = nodes
-            .iter()
-            .position(|n| n.id == node_id)
-            .ok_or(GraphError::NodeNotFound(node_id))?;
-
-        let result = nodes[idx].run(wired_input.as_deref())?;
-        node_results.push(result);
-
-        if let Some((edge_id, envelope)) = wired_input_envelope(node_id, edges, nodes)? {
-            deliveries.push(MessageDelivery { edge_id, envelope });
-        }
-    }
-
-    Ok(GraphRunResult {
-        node_results,
-        deliveries,
-    })
+    crate::runtime::runner::GraphRunner::run_graph_observed(
+        nodes,
+        edges,
+        &mut crate::runtime::runner::NoopObserver,
+        crate::runtime::runner::CLI_PACING_MS,
+    )
 }
 
-fn incoming_payload(
+pub(crate) fn incoming_payload(
     target_id: Uuid,
     edges: &[Edge],
     nodes: &[NodeInstance],
@@ -405,7 +386,7 @@ fn incoming_payload(
     Ok(Some(payload))
 }
 
-fn wired_input_envelope(
+pub(crate) fn wired_input_envelope(
     target_id: Uuid,
     edges: &[Edge],
     nodes: &[NodeInstance],

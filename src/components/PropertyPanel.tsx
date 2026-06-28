@@ -1,15 +1,22 @@
 import { HOW_OPTIONS, WHAT_OPTIONS, portLabel, whatId, howId } from "../lib/protocol";
-import type { NodeInstance } from "../types/graph";
+import type { LifecycleMode, NodeInstance } from "../types/graph";
 import { nodeKindLabel, nodePorts } from "../types/graph";
 
 interface PropertyPanelProps {
   node: NodeInstance | null;
   onUpdate: (value: string, input: string) => void;
   onUpdatePorts: (portDecls: Record<string, { what: string; how: string }>) => void;
+  onUpdateMode: (mode: LifecycleMode) => void;
   onRemove: () => void;
 }
 
-export function PropertyPanel({ node, onRemove, onUpdate, onUpdatePorts }: PropertyPanelProps) {
+export function PropertyPanel({
+  node,
+  onRemove,
+  onUpdate,
+  onUpdatePorts,
+  onUpdateMode,
+}: PropertyPanelProps) {
   if (!node) {
     return (
       <div className="property-panel">
@@ -45,6 +52,17 @@ export function PropertyPanel({ node, onRemove, onUpdate, onUpdatePorts }: Prope
             }
           }}
         />
+      </label>
+
+      <label className="field">
+        <span>Lifecycle mode</span>
+        <select
+          value={node.lifecycle_mode ?? "ephemeral"}
+          onChange={(e) => onUpdateMode(e.target.value as LifecycleMode)}
+        >
+          <option value="ephemeral">Ephemeral (run → done)</option>
+          <option value="persistent">Persistent (start/stop)</option>
+        </select>
       </label>
 
       <h3 className="panel-subheading">Port declarations</h3>

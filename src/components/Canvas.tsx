@@ -57,6 +57,7 @@ function validateConnectionPair(
 interface CanvasProps {
   nodes: NodeInstance[];
   edges: Edge[];
+  activeEdgeIds: Set<string>;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onConnect: (connection: Connection) => void;
@@ -68,6 +69,7 @@ interface CanvasProps {
 export function Canvas({
   nodes,
   edges,
+  activeEdgeIds,
   selectedId,
   onSelect,
   onConnect,
@@ -91,6 +93,8 @@ export function Canvas({
     target: edge.target_node_id,
     sourceHandle: edge.source_port,
     targetHandle: edge.target_port,
+    className: activeEdgeIds.has(edge.id) ? "edge-flow-active" : undefined,
+    animated: activeEdgeIds.has(edge.id),
   }));
 
   const isValidConnection = useCallback(

@@ -7,7 +7,7 @@ use thiserror::Error;
 use crate::runtime::edge::Edge;
 use crate::runtime::node::NodeInstance;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+pub const CURRENT_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Project {

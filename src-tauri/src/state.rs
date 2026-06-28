@@ -9,9 +9,10 @@ use crate::migration::{backup_before_update, restore_on_migration_failure, run_m
 use crate::persistence::project::{self, Project, ProjectError};
 use crate::runtime::edge::Edge;
 use crate::runtime::graph::{self, ConnectionValidation, GraphError, GraphRunResult};
+use crate::runtime::lifecycle::LifecycleMode;
 use crate::runtime::node::{NodeInstance, NodeKind, Position, RunResult, RuntimeError};
 use crate::runtime::protocol::presets::PortDeclaration;
-use crate::runtime::MinimalRuntime;
+use crate::runtime::runner::{GraphRunner, GUI_PACING_MS, NoopObserver};
 
 #[derive(Debug, Error)]
 pub enum AppError {
@@ -62,7 +63,7 @@ impl AppState {
         }
     }
 
-    fn persist(&self) -> Result<(), AppError> {
+    pub(crate) fn persist(&self) -> Result<(), AppError> {
         self.project.save(&self.project_path)?;
         Ok(())
     }
@@ -183,15 +184,123 @@ impl AppState {
         Ok(())
     }
 
+    pub fn update_node_mode(&mut self, id: Uuid, mode: LifecycleMode) -> Result<(), AppError> {
+        let node = self
+            .project
+            .nodes
+            .iter_mut()
+            .find(|n| n.id == id)
+            .ok_or_else(|| AppError::Validation(format!("node not found: {id}")))?;
+
+        if node.lifecycle == crate::runtime::lifecycle::Lifecycle::Running {
+            return Err(AppError::Validation(
+                "cannot change lifecycle mode while node is running".into(),
+            ));
+        }
+
+        node.lifecycle_mode = mode;
+        if node.lifecycle != crate::runtime::lifecycle::Lifecycle::Failed {
+            node.lifecycle = crate::runtime::lifecycle::Lifecycle::initial_for_mode(mode);
+        }
+
+        self.persist()?;
+        Ok(())
+    }
+
+    pub fn start_node(&mut self, id: Uuid) -> Result<NodeInstance, AppError> {
+        let node = self
+            .project
+            .nodes
+            .iter_mut()
+            .find(|n| n.id == id)
+            .ok_or_else(|| AppError::Validation(format!("node not found: {id}")))?;
+
+        node.start().map_err(AppError::from)?;
+        let updated = node.clone();
+        self.persist()?;
+        Ok(updated)
+    }
+
+    pub fn start_node_with_hooks(
+        &mut self,
+        id: Uuid,
+        hooks: &mut dyn crate::runtime::sdk::LifecycleHooks,
+    ) -> Result<NodeInstance, AppError> {
+        let node = self
+            .project
+            .nodes
+            .iter_mut()
+            .find(|n| n.id == id)
+            .ok_or_else(|| AppError::Validation(format!("node not found: {id}")))?;
+
+        node.start_with_hooks(hooks).map_err(AppError::from)?;
+        let updated = node.clone();
+        self.persist()?;
+        Ok(updated)
+    }
+
+    pub fn stop_node(&mut self, id: Uuid) -> Result<NodeInstance, AppError> {
+        let node = self
+            .project
+            .nodes
+            .iter_mut()
+            .find(|n| n.id == id)
+            .ok_or_else(|| AppError::Validation(format!("node not found: {id}")))?;
+
+        node.stop().map_err(AppError::from)?;
+        let updated = node.clone();
+        self.persist()?;
+        Ok(updated)
+    }
+
+    pub fn stop_node_with_hooks(
+        &mut self,
+        id: Uuid,
+        hooks: &mut dyn crate::runtime::sdk::LifecycleHooks,
+    ) -> Result<NodeInstance, AppError> {
+        let node = self
+            .project
+            .nodes
+            .iter_mut()
+            .find(|n| n.id == id)
+            .ok_or_else(|| AppError::Validation(format!("node not found: {id}")))?;
+
+        node.stop_with_hooks(hooks).map_err(AppError::from)?;
+        let updated = node.clone();
+        self.persist()?;
+        Ok(updated)
+    }
+
     pub fn run_node(&mut self, id: Uuid) -> Result<RunResult, AppError> {
-        let result = MinimalRuntime::run_node(&mut self.project.nodes, id)?;
+        let mut observer = NoopObserver;
+        let result =
+            GraphRunner::run_node_observed(&mut self.project.nodes, id, None, &mut observer)?;
         self.persist()?;
         Ok(result)
     }
 
     pub fn run_graph(&mut self) -> Result<GraphRunResult, AppError> {
         let edges = self.project.edges.clone();
-        let result = MinimalRuntime::run_graph(&mut self.project.nodes, &edges)?;
+        let mut observer = NoopObserver;
+        let result = GraphRunner::run_graph_observed(
+            &mut self.project.nodes,
+            &edges,
+            &mut observer,
+            GUI_PACING_MS,
+        )?;
+        self.persist()?;
+        Ok(result)
+    }
+
+    pub fn run_graph_headless(&mut self) -> Result<GraphRunResult, AppError> {
+        let edges = self.project.edges.clone();
+        let mut observer = NoopObserver;
+        let result = GraphRunner::run_graph_observed(
+            &mut self.project.nodes,
+            &edges,
+            &mut observer,
+            crate::runtime::runner::CLI_PACING_MS,
+        )?;
         self.persist()?;
         Ok(result)
     }

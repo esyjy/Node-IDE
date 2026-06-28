@@ -1,4 +1,14 @@
-export type Lifecycle = "created" | "running" | "done" | "failed";
+export type Lifecycle =
+  | "idle"
+  | "initializing"
+  | "running"
+  | "waiting"
+  | "stopping"
+  | "stopped"
+  | "done"
+  | "failed";
+
+export type LifecycleMode = "ephemeral" | "persistent";
 
 export type NodeKind =
   | { kind: "constant"; value: string }
@@ -17,6 +27,7 @@ export interface NodeInstance {
   id: string;
   kind: NodeKind;
   lifecycle: Lifecycle;
+  lifecycle_mode: LifecycleMode;
   last_output: string | null;
   position: Position;
   port_decls: Record<string, PortDeclaration>;
@@ -67,6 +78,13 @@ export interface UpdateInfo {
   notes: string | null;
 }
 
+export interface LifecycleEventPayload {
+  node_id: string;
+  lifecycle: Lifecycle;
+  previous?: Lifecycle;
+  lifecycle_mode: LifecycleMode;
+}
+
 export function nodeKindLabel(kind: NodeKind): string {
   switch (kind.kind) {
     case "constant":
@@ -98,4 +116,8 @@ export function sinkNodeId(nodes: NodeInstance[], edges: Edge[]): string | null 
   if (sinks.length === 1) return sinks[0].id;
   if (sinks.length > 1) return sinks[sinks.length - 1].id;
   return nodes[nodes.length - 1]?.id ?? null;
+}
+
+export function lifecycleModeLabel(mode: LifecycleMode): string {
+  return mode === "persistent" ? "P" : "E";
 }

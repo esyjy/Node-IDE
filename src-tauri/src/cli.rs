@@ -72,7 +72,7 @@ pub fn run_with_args(args: Vec<String>) -> i32 {
             }
         },
         Commands::RunGraph => match AppState::new() {
-            Ok(mut state) => match state.run_graph() {
+            Ok(mut state) => match state.run_graph_headless() {
                 Ok(result) => print_json(&result),
                 Err(error) => {
                     eprintln!("error: {error}");

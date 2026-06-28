@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_updater::UpdaterExt;
@@ -5,15 +9,19 @@ use uuid::Uuid;
 
 use crate::runtime::envelope::MessageEnvelope;
 use crate::runtime::graph::{ConnectionValidation, GraphRunResult, MessageDelivery};
-use crate::runtime::lifecycle::Lifecycle;
+use crate::runtime::lifecycle::{Lifecycle, LifecycleMode};
 use crate::runtime::node::{NodeKind, Position, RunResult};
 use crate::runtime::protocol::presets::PortDeclaration;
+use crate::runtime::runner::{GraphRunner, GUI_PACING_MS, LifecycleObserver};
+use crate::runtime::sdk::LifecycleHooks;
 use crate::state::{AppError, AppState, AppStateSnapshot};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LifecycleEvent {
     pub node_id: Uuid,
     pub lifecycle: Lifecycle,
+    pub previous: Option<Lifecycle>,
+    pub lifecycle_mode: LifecycleMode,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -36,22 +44,98 @@ pub struct UpdateStatusEvent {
     pub message: Option<String>,
 }
 
-fn emit_lifecycle(app: &AppHandle, node_id: Uuid, lifecycle: Lifecycle) {
+struct LifecycleEmitter {
+    app: AppHandle,
+    pending: HashMap<Uuid, LifecycleEvent>,
+    last_flush: Instant,
+}
+
+impl LifecycleEmitter {
+    fn new(app: AppHandle) -> Self {
+        Self {
+            app,
+            pending: HashMap::new(),
+            last_flush: Instant::now(),
+        }
+    }
+
+    fn queue(&mut self, event: LifecycleEvent) {
+        self.pending.insert(event.node_id, event);
+        if self.last_flush.elapsed() >= Duration::from_millis(16) {
+            self.flush();
+        }
+    }
+
+    fn flush(&mut self) {
+        for (_, event) in self.pending.drain() {
+            let _ = self.app.emit("node:lifecycle", event);
+        }
+        self.last_flush = Instant::now();
+    }
+}
+
+impl LifecycleObserver for LifecycleEmitter {
+    fn on_lifecycle(
+        &mut self,
+        node_id: Uuid,
+        previous: Lifecycle,
+        current: Lifecycle,
+        mode: LifecycleMode,
+    ) {
+        self.queue(LifecycleEvent {
+            node_id,
+            lifecycle: current,
+            previous: Some(previous),
+            lifecycle_mode: mode,
+        });
+    }
+
+    fn on_output(&mut self, node_id: Uuid, output: &str) {
+        let _ = self.app.emit(
+            "node:output",
+            OutputEvent {
+                node_id,
+                output: output.to_string(),
+            },
+        );
+    }
+
+    fn on_delivery(&mut self, delivery: &MessageDelivery) {
+        let _ = self.app.emit(
+            "message:delivered",
+            MessageDeliveredEvent {
+                edge_id: delivery.edge_id,
+                envelope: delivery.envelope.clone(),
+            },
+        );
+    }
+}
+
+struct EmitterHooks<'a> {
+    emitter: &'a mut LifecycleEmitter,
+    node_id: Uuid,
+}
+
+impl LifecycleHooks for EmitterHooks<'_> {
+    fn on_transition(&mut self, from: Lifecycle, to: Lifecycle, mode: LifecycleMode) {
+        self.emitter
+            .on_lifecycle(self.node_id, from, to, mode);
+    }
+}
+
+fn emit_lifecycle_simple(
+    app: &AppHandle,
+    node_id: Uuid,
+    lifecycle: Lifecycle,
+    mode: LifecycleMode,
+) {
     let _ = app.emit(
         "node:lifecycle",
         LifecycleEvent {
             node_id,
             lifecycle,
-        },
-    );
-}
-
-fn emit_output(app: &AppHandle, node_id: Uuid, output: &str) {
-    let _ = app.emit(
-        "node:output",
-        OutputEvent {
-            node_id,
-            output: output.to_string(),
+            previous: None,
+            lifecycle_mode: mode,
         },
     );
 }
@@ -60,16 +144,6 @@ fn emit_output(app: &AppHandle, node_id: Uuid, output: &str) {
 pub struct MessageDeliveredEvent {
     pub edge_id: uuid::Uuid,
     pub envelope: MessageEnvelope,
-}
-
-fn emit_message_delivered(app: &AppHandle, delivery: &MessageDelivery) {
-    let _ = app.emit(
-        "message:delivered",
-        MessageDeliveredEvent {
-            edge_id: delivery.edge_id,
-            envelope: delivery.envelope.clone(),
-        },
-    );
 }
 
 fn emit_update_status(app: &AppHandle, phase: &str, message: Option<String>) {
@@ -83,7 +157,7 @@ fn emit_update_status(app: &AppHandle, phase: &str, message: Option<String>) {
 }
 
 #[tauri::command]
-pub fn get_app_state(state: State<'_, std::sync::Mutex<AppState>>) -> Result<AppStateSnapshot, String> {
+pub fn get_app_state(state: State<'_, Mutex<AppState>>) -> Result<AppStateSnapshot, String> {
     state
         .lock()
         .map_err(|e| e.to_string())
@@ -102,7 +176,7 @@ pub struct AddNodeRequest {
 #[tauri::command]
 pub fn add_node(
     app: AppHandle,
-    state: State<'_, std::sync::Mutex<AppState>>,
+    state: State<'_, Mutex<AppState>>,
     request: AddNodeRequest,
 ) -> Result<AppStateSnapshot, String> {
     let kind = parse_kind(&request.kind, request.value, request.input)?;
@@ -113,7 +187,7 @@ pub fn add_node(
 
     let mut guard = state.lock().map_err(|e| e.to_string())?;
     let node = guard.add_node(kind, Some(position)).map_err(app_error)?;
-    emit_lifecycle(&app, node.id, node.lifecycle);
+    emit_lifecycle_simple(&app, node.id, node.lifecycle, node.lifecycle_mode);
     Ok(guard.snapshot())
 }
 
@@ -127,7 +201,7 @@ pub struct UpdateNodeRequest {
 
 #[tauri::command]
 pub fn update_node(
-    state: State<'_, std::sync::Mutex<AppState>>,
+    state: State<'_, Mutex<AppState>>,
     request: UpdateNodeRequest,
 ) -> Result<AppStateSnapshot, String> {
     let kind = parse_kind(&request.kind, request.value, request.input)?;
@@ -140,7 +214,7 @@ pub fn update_node(
 
 #[tauri::command]
 pub fn move_node(
-    state: State<'_, std::sync::Mutex<AppState>>,
+    state: State<'_, Mutex<AppState>>,
     id: Uuid,
     x: f64,
     y: f64,
@@ -154,7 +228,7 @@ pub fn move_node(
 
 #[tauri::command]
 pub fn remove_node(
-    state: State<'_, std::sync::Mutex<AppState>>,
+    state: State<'_, Mutex<AppState>>,
     id: Uuid,
 ) -> Result<AppStateSnapshot, String> {
     let mut guard = state.lock().map_err(|e| e.to_string())?;
@@ -172,7 +246,7 @@ pub struct ValidateConnectionRequest {
 
 #[tauri::command]
 pub fn validate_connection(
-    state: State<'_, std::sync::Mutex<AppState>>,
+    state: State<'_, Mutex<AppState>>,
     request: ValidateConnectionRequest,
 ) -> Result<ConnectionValidation, String> {
     let guard = state.lock().map_err(|e| e.to_string())?;
@@ -200,7 +274,7 @@ pub struct UpdateNodePortsRequest {
 
 #[tauri::command]
 pub fn update_node_ports(
-    state: State<'_, std::sync::Mutex<AppState>>,
+    state: State<'_, Mutex<AppState>>,
     request: UpdateNodePortsRequest,
 ) -> Result<AppStateSnapshot, String> {
     let mut guard = state.lock().map_err(|e| e.to_string())?;
@@ -221,6 +295,71 @@ pub fn update_node_ports(
 }
 
 #[derive(Debug, Deserialize)]
+pub struct UpdateNodeModeRequest {
+    pub id: Uuid,
+    pub mode: String,
+}
+
+#[tauri::command]
+pub fn update_node_mode(
+    app: AppHandle,
+    state: State<'_, Mutex<AppState>>,
+    request: UpdateNodeModeRequest,
+) -> Result<AppStateSnapshot, String> {
+    let mode = parse_lifecycle_mode(&request.mode)?;
+    let mut guard = state.lock().map_err(|e| e.to_string())?;
+    guard
+        .update_node_mode(request.id, mode)
+        .map_err(app_error)?;
+    let node = guard
+        .project
+        .nodes
+        .iter()
+        .find(|n| n.id == request.id)
+        .ok_or_else(|| "node not found".to_string())?;
+    emit_lifecycle_simple(&app, node.id, node.lifecycle, node.lifecycle_mode);
+    Ok(guard.snapshot())
+}
+
+#[tauri::command]
+pub fn start_node(
+    app: AppHandle,
+    state: State<'_, Mutex<AppState>>,
+    id: Uuid,
+) -> Result<AppStateSnapshot, String> {
+    let mut guard = state.lock().map_err(|e| e.to_string())?;
+    let mut emitter = LifecycleEmitter::new(app);
+    {
+        let mut hooks = EmitterHooks {
+            emitter: &mut emitter,
+            node_id: id,
+        };
+        guard.start_node_with_hooks(id, &mut hooks).map_err(app_error)?;
+    }
+    emitter.flush();
+    Ok(guard.snapshot())
+}
+
+#[tauri::command]
+pub fn stop_node(
+    app: AppHandle,
+    state: State<'_, Mutex<AppState>>,
+    id: Uuid,
+) -> Result<AppStateSnapshot, String> {
+    let mut guard = state.lock().map_err(|e| e.to_string())?;
+    let mut emitter = LifecycleEmitter::new(app);
+    {
+        let mut hooks = EmitterHooks {
+            emitter: &mut emitter,
+            node_id: id,
+        };
+        guard.stop_node_with_hooks(id, &mut hooks).map_err(app_error)?;
+    }
+    emitter.flush();
+    Ok(guard.snapshot())
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AddEdgeRequest {
     pub source_node_id: Uuid,
     pub source_port: String,
@@ -230,7 +369,7 @@ pub struct AddEdgeRequest {
 
 #[tauri::command]
 pub fn add_edge(
-    state: State<'_, std::sync::Mutex<AppState>>,
+    state: State<'_, Mutex<AppState>>,
     request: AddEdgeRequest,
 ) -> Result<AppStateSnapshot, String> {
     let mut guard = state.lock().map_err(|e| e.to_string())?;
@@ -247,7 +386,7 @@ pub fn add_edge(
 
 #[tauri::command]
 pub fn remove_edge(
-    state: State<'_, std::sync::Mutex<AppState>>,
+    state: State<'_, Mutex<AppState>>,
     id: Uuid,
 ) -> Result<AppStateSnapshot, String> {
     let mut guard = state.lock().map_err(|e| e.to_string())?;
@@ -256,45 +395,92 @@ pub fn remove_edge(
 }
 
 #[tauri::command]
-pub fn run_graph(
+pub async fn run_graph(
     app: AppHandle,
-    state: State<'_, std::sync::Mutex<AppState>>,
+    state: State<'_, Mutex<AppState>>,
 ) -> Result<GraphRunResult, String> {
-    let mut guard = state.lock().map_err(|e| e.to_string())?;
+    let edges = {
+        let guard = state.lock().map_err(|e| e.to_string())?;
+        guard.project.edges.clone()
+    };
 
-    match guard.run_graph() {
-        Ok(result) => {
-            for delivery in &result.deliveries {
-                emit_message_delivered(&app, delivery);
-            }
-            for node_result in &result.node_results {
-                emit_output(&app, node_result.node_id, &node_result.output);
-                emit_lifecycle(&app, node_result.node_id, node_result.lifecycle);
-            }
-            Ok(result)
+    let order = {
+        let guard = state.lock().map_err(|e| e.to_string())?;
+        crate::runtime::graph::topological_order(&guard.project.nodes, &edges)
+            .map_err(|e| app_error(AppError::from(e)))?
+    };
+
+    let mut result = GraphRunResult {
+        node_results: Vec::new(),
+        deliveries: Vec::new(),
+    };
+
+    let mut emitter = LifecycleEmitter::new(app.clone());
+
+    for (i, node_id) in order.iter().enumerate() {
+        if i > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(GUI_PACING_MS));
         }
-        Err(error) => Err(app_error(error)),
+
+        let step = {
+            let mut guard = state.lock().map_err(|e| e.to_string())?;
+            let wired_input = crate::runtime::graph::incoming_payload(
+                *node_id,
+                &edges,
+                &guard.project.nodes,
+            )
+            .map_err(|e| app_error(AppError::from(e)))?;
+
+            GraphRunner::run_node_observed(
+                &mut guard.project.nodes,
+                *node_id,
+                wired_input.as_deref(),
+                &mut emitter,
+            )
+            .map_err(|e| app_error(AppError::from(e)))?
+        };
+
+        result.node_results.push(step.clone());
+
+        if let Ok(Some((edge_id, envelope))) = {
+            let guard = state.lock().map_err(|e| e.to_string())?;
+            crate::runtime::graph::wired_input_envelope(*node_id, &edges, &guard.project.nodes)
+        } {
+            let delivery = MessageDelivery { edge_id, envelope };
+            emitter.on_delivery(&delivery);
+            result.deliveries.push(delivery);
+        }
     }
+
+    emitter.flush();
+
+    {
+        let guard = state.lock().map_err(|e| e.to_string())?;
+        guard.persist().map_err(app_error)?;
+    }
+
+    Ok(result)
 }
 
 #[tauri::command]
 pub fn run_node(
     app: AppHandle,
-    state: State<'_, std::sync::Mutex<AppState>>,
+    state: State<'_, Mutex<AppState>>,
     id: Uuid,
 ) -> Result<RunResult, String> {
     let mut guard = state.lock().map_err(|e| e.to_string())?;
-    emit_lifecycle(&app, id, Lifecycle::Running);
+    let mut emitter = LifecycleEmitter::new(app);
 
-    match guard.run_node(id) {
+    match GraphRunner::run_node_observed(&mut guard.project.nodes, id, None, &mut emitter) {
         Ok(result) => {
-            emit_output(&app, result.node_id, &result.output);
-            emit_lifecycle(&app, result.node_id, result.lifecycle);
+            emitter.flush();
+            guard.persist().map_err(app_error)?;
             Ok(result)
         }
         Err(error) => {
-            emit_lifecycle(&app, id, Lifecycle::Failed);
-            Err(app_error(error))
+            emitter.flush();
+            let _ = guard.persist();
+            Err(app_error(AppError::from(error)))
         }
     }
 }
@@ -333,7 +519,7 @@ pub async fn check_for_updates(app: AppHandle) -> Result<UpdateInfo, String> {
 }
 
 #[tauri::command]
-pub async fn install_update(app: AppHandle, state: State<'_, std::sync::Mutex<AppState>>) -> Result<(), String> {
+pub async fn install_update(app: AppHandle, state: State<'_, Mutex<AppState>>) -> Result<(), String> {
     emit_update_status(&app, "downloading", None);
 
     {
@@ -374,6 +560,14 @@ fn parse_kind(kind: &str, value: Option<String>, input: Option<String>) -> Resul
             input: input.unwrap_or_default(),
         }),
         other => Err(format!("unknown node kind: {other}")),
+    }
+}
+
+fn parse_lifecycle_mode(mode: &str) -> Result<LifecycleMode, String> {
+    match mode {
+        "ephemeral" => Ok(LifecycleMode::Ephemeral),
+        "persistent" => Ok(LifecycleMode::Persistent),
+        other => Err(format!("unknown lifecycle mode: {other}")),
     }
 }
 
